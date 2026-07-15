@@ -191,6 +191,34 @@ app.get('/api/store/keys/:prefix', (req, res) => {
     });
 });
 
+// Export all timesheets as clean JSON
+app.get('/api/export', (req, res) => {
+    db.all(`SELECT * FROM timesheets`, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        
+        // Parse the JSON strings back into objects for a clean output
+        const exportData = rows.map(row => {
+            let parsedData;
+            try {
+                parsedData = JSON.parse(row.data);
+            } catch (e) {
+                parsedData = row.data;
+            }
+            return {
+                key: row.key,
+                data: parsedData,
+                status: row.status
+            };
+        });
+        
+        // Send pretty-printed JSON
+        res.header("Content-Type", "application/json");
+        res.send(JSON.stringify(exportData, null, 4));
+    });
+});
+
 app.listen(PORT, () => {
     console.log(`Express server running on http://localhost:${PORT}`);
 });
