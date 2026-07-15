@@ -506,10 +506,25 @@ function TimesheetApp({ employee, onSubmitSuccess, isPastDeadline }) {
         autoSubmitted: true
       };
       console.log("Auto-Submitting to Laserfiche:", payload);
-      DBService.setStore(submitStatusKey, 'submitted');
-      setSubmitted(true);
-      setIsVerifying(false);
-      setViewMode('current');
+      
+      // Async wrapper for auto-submit
+      const doAutoSubmit = async () => {
+        try {
+          await DBService.setStore(submitStatusKey, 'submitted');
+          await fetch('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          setSubmitted(true);
+          setIsVerifying(false);
+          setViewMode('current');
+        } catch(e) {
+          console.error("Auto-submit failed", e);
+        }
+      };
+      
+      doAutoSubmit();
     }
   }, [isPastDeadline, submitted, employee, entries, savedSignature, submitStatusKey]);
 
@@ -612,7 +627,7 @@ function TimesheetApp({ employee, onSubmitSuccess, isPastDeadline }) {
     }
   };
 
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = async () => {
     try {
       const payload = {
         employeeId: employee.id,
@@ -622,7 +637,17 @@ function TimesheetApp({ employee, onSubmitSuccess, isPastDeadline }) {
         signature: savedSignature
       };
       console.log("Submitting to Laserfiche:", payload);
-      DBService.setStore(submitStatusKey, 'submitted');
+      
+      // Update the local SQLite status
+      await DBService.setStore(submitStatusKey, 'submitted');
+      
+      // Push the full payload to the backend hot folder generator
+      await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
       setSubmitted(true);
       setIsVerifying(false);
     } catch (err) {
@@ -765,12 +790,16 @@ function TimesheetApp({ employee, onSubmitSuccess, isPastDeadline }) {
              const dataRow = keys.find(k => k.key === dataKey);
              if (dataRow && dataRow.data) {
                 try {
-                  const parsed = JSON.parse(JSON.parse(dataRow.data));
+                  let parsed = JSON.parse(dataRow.data);
+                  if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+                  
                   const firstDay = parsed[0].dayName.split(',')[1].trim(); 
                   const lastDay = parsed[6].dayName.split(',')[1].trim(); 
                   const totalHours = parsed.reduce((acc, day) => acc + day.rows.reduce((sum, r) => sum + parseFloat(r.hours || 0), 0), 0);
                   hList.push({ dataKey, label: `${firstDay} - ${lastDay}, 2026`, entries: parsed, totalHours });
-                } catch(e) {}
+                } catch(e) {
+                  console.error("Error parsing historical timesheet:", e);
+                }
              }
            }
         }
